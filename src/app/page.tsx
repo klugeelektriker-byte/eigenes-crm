@@ -20,7 +20,7 @@ export default function Home() {
     });
 
     if (error) {
-      setMessage("Anmeldung fehlgeschlagen. Bitte E-Mail und Passwort prüfen.");
+      setMessage(`Anmeldefehler: ${error.message} | Code: ${error.code ?? error.name} | HTTP: ${error.status ?? "unbekannt"}`);
       setLoading(false);
       return;
     }
