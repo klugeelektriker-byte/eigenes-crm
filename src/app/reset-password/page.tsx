@@ -1,17 +1,89 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase";
 
 export default function ResetPasswordPage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const [password, setPassword] = useState("");
   const [passwordRepeat, setPasswordRepeat] = useState("");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState("Reset-Link wird geprüft...");
   const [loading, setLoading] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    async function prepareRecoverySession() {
+      try {
+        const url = new URL(window.location.href);
+        const code = url.searchParams.get("code");
+
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+
+          if (error) {
+            setMessage("Der Reset-Link ist ungültig oder abgelaufen.");
+            return;
+          }
+
+          window.history.replaceState({}, "", "/reset-password");
+          setReady(true);
+          setMessage("");
+          return;
+        }
+
+        const hash = new URLSearchParams(
+          window.location.hash.startsWith("#")
+            ? window.location.hash.substring(1)
+            : window.location.hash
+        );
+
+        const accessToken = hash.get("access_token");
+        const refreshToken = hash.get("refresh_token");
+
+        if (accessToken && refreshToken) {
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+
+          if (error) {
+            setMessage("Der Reset-Link ist ungültig oder abgelaufen.");
+            return;
+          }
+
+          window.history.replaceState({}, "", "/reset-password");
+          setReady(true);
+          setMessage("");
+          return;
+        }
+
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (session) {
+          setReady(true);
+          setMessage("");
+        } else {
+          setMessage(
+            "Keine gültige Passwort-Reset-Sitzung gefunden. Bitte einen neuen Reset-Link anfordern."
+          );
+        }
+      } catch {
+        setMessage("Der Reset-Link konnte nicht verarbeitet werden.");
+      }
+    }
+
+    prepareRecoverySession();
+  }, [supabase]);
 
   async function updatePassword() {
+    if (!ready) {
+      setMessage("Bitte zuerst einen gültigen Reset-Link öffnen.");
+      return;
+    }
+
     if (password.length < 8) {
       setMessage("Das Passwort muss mindestens 8 Zeichen haben.");
       return;
@@ -30,17 +102,18 @@ export default function ResetPasswordPage() {
     });
 
     if (error) {
-      setMessage("Passwort konnte nicht geändert werden.");
+      setMessage("Passwort konnte nicht geändert werden: " + error.message);
       setLoading(false);
       return;
     }
 
-    setMessage("Passwort erfolgreich geändert. Du kannst dich jetzt anmelden.");
-    setLoading(false);
+    await supabase.auth.signOut();
+
+    setMessage("Passwort erfolgreich geändert. Du wirst zum Login weitergeleitet.");
 
     setTimeout(() => {
       window.location.href = "/";
-    }, 2000);
+    }, 1800);
   }
 
   return (
@@ -62,7 +135,8 @@ export default function ResetPasswordPage() {
             placeholder="Neues Passwort"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 outline-none"
+            disabled={!ready}
+            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 outline-none disabled:opacity-50"
           />
 
           <input
@@ -70,19 +144,22 @@ export default function ResetPasswordPage() {
             placeholder="Passwort wiederholen"
             value={passwordRepeat}
             onChange={(e) => setPasswordRepeat(e.target.value)}
-            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 outline-none"
+            disabled={!ready}
+            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 outline-none disabled:opacity-50"
           />
 
           <button
             onClick={updatePassword}
-            disabled={loading}
+            disabled={loading || !ready}
             className="w-full rounded-xl bg-white px-4 py-3 font-medium text-black disabled:opacity-50"
           >
             {loading ? "Wird gespeichert..." : "Passwort speichern"}
           </button>
 
           {message && (
-            <p className="text-sm text-zinc-300">{message}</p>
+            <p className="text-sm text-zinc-300">
+              {message}
+            </p>
           )}
         </div>
       </div>
